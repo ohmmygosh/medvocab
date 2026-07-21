@@ -125,6 +125,12 @@
 
     <div class="settings">
       <h3>播放设置</h3>
+      <div class="srow"><span>发音方式</span>
+        <select id="set-prefer-human" onchange="saveSettings()">
+          <option value="0" selected>系统语音(清晰稳定,推荐)</option>
+          <option value="1">真人录音(部分词有,音质不一)</option>
+        </select>
+      </div>
       <div class="srow"><span>播放顺序</span>
         <select id="set-order" onchange="saveSettings()">
           <option value="seq">按添加顺序</option>
@@ -212,7 +218,7 @@
 </div>
 
 <div id="toast"></div>
-<footer>Med Vocab v1.1 · 本地数据 · 由 Claude 构建</footer>
+<footer>Med Vocab v1.2 · 本地数据 · 由 Claude 构建</footer>
 
 <script>
 /* =====================================================================
@@ -473,11 +479,15 @@ function sleep(ms, token){
   });
 }
 
-// 单词卡上的发音按钮:优先真人发音,否则TTS
+// 单词卡上的发音按钮
+// 默认用系统合成语音(清晰稳定);仅当用户在设置里选了"真人录音"且该词有录音时才播MP3
 function pronounce(id){
   const w = state.words.find(x=>x.id===id); if(!w) return;
-  if(w.audio){
-    new Audio(w.audio).play().catch(()=>{ speak(w.word, 'en-US', 0.9); });
+  const preferHuman = (state.settings||{}).preferHuman;
+  if(preferHuman && w.audio){
+    const a = new Audio(w.audio); a.volume = 1;
+    // 真人录音播放失败(如音质/网络问题)时,自动回退到系统语音
+    a.play().catch(()=>{ speechSynthesis.cancel(); setTimeout(()=>speak(w.word,'en-US',0.9), 120); });
   } else {
     // cancel后稍等再朗读,避免Safari把新语音一并吞掉
     speechSynthesis.cancel();
@@ -502,7 +512,8 @@ function getSettings(){
     loop: document.getElementById('set-loop').checked,
     skipknown: document.getElementById('set-skipknown').checked,
     voiceEn: document.getElementById('set-voice-en').value,
-    voiceZh: document.getElementById('set-voice-zh').value
+    voiceZh: document.getElementById('set-voice-zh').value,
+    preferHuman: document.getElementById('set-prefer-human').value === '1'
   };
 }
 function saveSettings(){ state.settings = getSettings(); saveState(); }
@@ -516,6 +527,7 @@ function restoreSettings(){
   if(s.gap) document.getElementById('set-gap').value = s.gap;
   if('loop' in s) document.getElementById('set-loop').checked = s.loop;
   if('skipknown' in s) document.getElementById('set-skipknown').checked = s.skipknown;
+  if('preferHuman' in s) document.getElementById('set-prefer-human').value = s.preferHuman ? '1' : '0';
   populateVoiceSelects();   // 发音人下拉框(voices可能稍后才加载完,onvoiceschanged会再填一次)
 }
 
