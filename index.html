@@ -226,7 +226,7 @@
 </div>
 
 <div id="toast"></div>
-<footer>Med Vocab v1.3 · 本地+云同步 · 由 Claude 构建</footer>
+<footer>Med Vocab v1.3.1 · 本地+云同步 · 由 Claude 构建</footer>
 
 <script>
 /* =====================================================================
@@ -295,10 +295,12 @@ async function cloudPush(){
 }
 async function cloudPull(){
   const r = await fetch(CLOUD_API + '/b/' + sync.binId + '/latest', {
-    headers:{'X-Master-Key':sync.key,'X-Bin-Meta':'false'}
+    headers:{'X-Master-Key':sync.key}
   });
   if(!r.ok) throw new Error('pull ' + r.status);
-  return await r.json();   // X-Bin-Meta:false → 直接返回我们存的对象
+  const data = await r.json();
+  // JSONBin 默认把数据包在 {record:{...}, metadata:{...}} 里;两种格式都兼容
+  return (data && data.record !== undefined) ? data.record : data;
 }
 
 let pushTimer = null;
