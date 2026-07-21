@@ -79,6 +79,10 @@
   .slider:before{content:""; position:absolute; width:20px; height:20px; left:3px; top:3px; background:#fff; border-radius:50%; transition:.2s;}
   .switch input:checked + .slider{background:var(--teal);}
   .switch input:checked + .slider:before{transform:translateX(20px);}
+  .synclabel{display:block; font-size:13px; font-weight:600; color:var(--teal-dark); margin:6px 2px 6px;}
+  .syncinput{width:100%; padding:10px 12px; font-size:14px; border:1.5px solid #cfd8d8; border-radius:10px; outline:none; background:#fff;}
+  .syncinput:focus{border-color:var(--teal);}
+  #sync-box code{background:#f1f5f5; padding:2px 6px; border-radius:5px;}
 
   /* toast */
   #toast{position:fixed; bottom:24px; left:50%; transform:translateX(-50%); background:rgba(31,41,55,.92); color:#fff; padding:10px 18px; border-radius:10px; font-size:14px; display:none; z-index:99; max-width:86%;}
@@ -190,6 +194,10 @@
   <!-- ============ 数据 ============ -->
   <section id="panel-data" class="panel">
     <div class="settings">
+      <h3>☁️ 云同步(跨设备)</h3>
+      <div id="sync-box"></div>
+    </div>
+    <div class="settings" style="margin-top:12px">
       <h3>数据备份与迁移</h3>
       <div class="srow"><span>导出单词本 (JSON文件)</span><button class="btn small" onclick="exportData()">导出</button></div>
       <div class="srow"><span>导入单词本 (合并去重)</span><button class="btn small gray" onclick="document.getElementById('import-file').click()">导入</button></div>
@@ -218,7 +226,7 @@
 </div>
 
 <div id="toast"></div>
-<footer>Med Vocab v1.2 · 本地数据 · 由 Claude 构建</footer>
+<footer>Med Vocab v1.3 · 本地+云同步 · 由 Claude 构建</footer>
 
 <script>
 /* =====================================================================
@@ -233,19 +241,188 @@
    ===================================================================== */
 
 /* ---------------- 1. 数据层 ---------------- */
-const STORE_KEY = 'medvocab_v1';
-let state = { words: [], settings: {} };
+const STORE_KEY = 'medvocab_v1';   // 单词数据(会被云同步)
+const SYNC_KEY  = 'medvocab_sync'; // 云同步配置:密钥+同步码,只存本机,绝不上传、绝不写进公开代码
+let state = { words: [], settings: {}, updatedAt: 0 };
+let sync  = { key:'', binId:'', enabled:false };
+let applyingRemote = false;   // 正在应用云端数据时,避免又反向推送造成回环
 // word 结构: {id, word, phonetic, cn, en, audio, known, addedAt}
 
 function loadState(){
   try{
     const raw = localStorage.getItem(STORE_KEY);
-    if(raw) state = Object.assign({words:[],settings:{}}, JSON.parse(raw));
+    if(raw) state = Object.assign({words:[],settings:{},updatedAt:0}, JSON.parse(raw));
   }catch(e){ console.warn('读取本地数据失败', e); }
 }
 function saveState(){
   try{ localStorage.setItem(STORE_KEY, JSON.stringify(state)); }
   catch(e){ toast('保存失败:浏览器存储不可用'); }
+}
+// 单词发生变化时调用:更新时间戳、保存、(若开了同步)排队上传
+function markWordsChanged(){
+  state.updatedAt = Date.now();
+  saveState();
+  if(sync.enabled && !applyingRemote) schedulePush();
+}
+function loadSync(){
+  try{ const r = localStorage.getItem(SYNC_KEY); if(r) sync = Object.assign(sync, JSON.parse(r)); }catch(e){}
+}
+function saveSync(){
+  try{ localStorage.setItem(SYNC_KEY, JSON.stringify(sync)); }catch(e){}
+}
+
+/* ---------------- 云同步(JSONBin.io) ---------------- */
+const CLOUD_API = 'https://api.jsonbin.io/v3';
+function cloudPayload(){ return { words: state.words, updatedAt: state.updatedAt || 0 }; }
+
+async function cloudCreateBin(){
+  const r = await fetch(CLOUD_API + '/b', {
+    method:'POST',
+    headers:{'Content-Type':'application/json','X-Master-Key':sync.key,'X-Bin-Private':'true','X-Bin-Name':'medvocab'},
+    body: JSON.stringify(cloudPayload())
+  });
+  if(!r.ok) throw new Error('create ' + r.status);
+  const d = await r.json();
+  return d.metadata.id;
+}
+async function cloudPush(){
+  const r = await fetch(CLOUD_API + '/b/' + sync.binId, {
+    method:'PUT',
+    headers:{'Content-Type':'application/json','X-Master-Key':sync.key},
+    body: JSON.stringify(cloudPayload())
+  });
+  if(!r.ok) throw new Error('push ' + r.status);
+}
+async function cloudPull(){
+  const r = await fetch(CLOUD_API + '/b/' + sync.binId + '/latest', {
+    headers:{'X-Master-Key':sync.key,'X-Bin-Meta':'false'}
+  });
+  if(!r.ok) throw new Error('pull ' + r.status);
+  return await r.json();   // X-Bin-Meta:false → 直接返回我们存的对象
+}
+
+let pushTimer = null;
+function schedulePush(){
+  clearTimeout(pushTimer);
+  setSyncBadge('待上传…');
+  pushTimer = setTimeout(doPush, 1500);   // 连续操作合并,1.5秒后统一上传
+}
+async function doPush(){
+  if(!sync.enabled || !sync.binId) return;
+  try{ setSyncBadge('上传中…'); await cloudPush(); setSyncBadge('已同步 · ' + timeStr()); }
+  catch(e){ setSyncBadge('上传失败,可点“立即上传”重试'); }
+}
+// 启动时:比时间戳,谁新用谁
+async function initSync(){
+  if(!(sync.enabled && sync.binId && sync.key)) return;
+  try{
+    setSyncBadge('检查云端…');
+    const remote = await cloudPull();
+    const rU = (remote && remote.updatedAt) || 0, lU = state.updatedAt || 0;
+    if(remote && Array.isArray(remote.words) && rU > lU){
+      applyingRemote = true;
+      state.words = remote.words; state.updatedAt = rU;
+      saveState(); applyingRemote = false;
+      renderList();
+      setSyncBadge('已从云端更新 · ' + timeStr());
+    } else if(lU > rU){
+      await doPush();
+    } else {
+      setSyncBadge('已同步 · ' + timeStr());
+    }
+  }catch(e){ setSyncBadge('连接云端失败,检查网络或密钥'); }
+}
+function timeStr(){ const d = new Date(); return ('0'+d.getHours()).slice(-2) + ':' + ('0'+d.getMinutes()).slice(-2); }
+function setSyncBadge(t){ const el = document.getElementById('sync-status'); if(el) el.textContent = t; }
+
+// 首台设备:开启同步(创建云端仓库,上传当前数据)
+async function enableSyncNew(){
+  const key = document.getElementById('sync-key').value.trim();
+  if(!key){ toast('请先粘贴云同步密钥'); return; }
+  sync.key = key;
+  toast('正在创建云端仓库…');
+  try{
+    if(!state.updatedAt) state.updatedAt = Date.now();
+    sync.binId = await cloudCreateBin();
+    sync.enabled = true; saveSync(); renderSyncUI();
+    toast('云同步已开启!请把同步码抄到其它设备');
+  }catch(e){ toast('开启失败:密钥不正确或网络问题'); }
+}
+// 其它设备:用同步码连接(合并双方单词,谁都不丢)
+async function connectSync(){
+  const key = document.getElementById('sync-key2').value.trim();
+  const binId = document.getElementById('sync-code').value.trim();
+  if(!key || !binId){ toast('请填写密钥和同步码'); return; }
+  sync.key = key; sync.binId = binId;
+  toast('正在连接云端…');
+  try{
+    const remote = await cloudPull();
+    sync.enabled = true; saveSync();
+    if(remote && Array.isArray(remote.words)){
+      applyingRemote = true;
+      const map = {};
+      remote.words.forEach(w => { if(w && w.word) map[w.word] = w; });
+      (state.words||[]).forEach(w => { if(w && w.word && !map[w.word]) map[w.word] = w; }); // 保留本机独有的词
+      state.words = Object.values(map);
+      state.updatedAt = Date.now();
+      saveState(); applyingRemote = false;
+      renderList();
+      await doPush();   // 把合并后的结果推回云端,让两边一致
+    }
+    renderSyncUI();
+    toast('已连接并同步完成!');
+  }catch(e){ toast('连接失败:密钥或同步码不正确'); sync.enabled=false; }
+}
+function disableSync(){
+  if(!confirm('关闭云同步?单词仍然保留在本机,只是不再自动上传/下载。')) return;
+  sync.enabled = false; saveSync(); renderSyncUI();
+  toast('已关闭云同步');
+}
+async function forcePull(){
+  if(!confirm('从云端下载并覆盖本机单词?本机未上传的改动会丢失。')) return;
+  try{
+    setSyncBadge('下载中…');
+    const remote = await cloudPull();
+    if(remote && Array.isArray(remote.words)){
+      applyingRemote = true;
+      state.words = remote.words; state.updatedAt = remote.updatedAt || Date.now();
+      saveState(); applyingRemote = false; renderList();
+      setSyncBadge('已下载 · ' + timeStr()); toast('已从云端下载 ' + remote.words.length + ' 个单词');
+    }
+  }catch(e){ setSyncBadge('下载失败'); toast('下载失败:检查密钥/同步码/网络'); }
+}
+function copySyncCode(){
+  const code = sync.binId || '';
+  if(navigator.clipboard) navigator.clipboard.writeText(code).then(()=>toast('同步码已复制'), ()=>toast('同步码:'+code));
+  else toast('同步码:' + code);
+}
+function renderSyncUI(){
+  const box = document.getElementById('sync-box'); if(!box) return;
+  if(sync.enabled){
+    box.innerHTML = `
+      <div class="srow"><span>状态</span><span id="sync-status" style="color:var(--teal);font-size:13px">已开启</span></div>
+      <div class="srow"><span>同步码(其它设备用它连接)</span>
+        <span style="display:flex;gap:6px;align-items:center;max-width:60%">
+          <code style="font-size:12px;word-break:break-all">${esc(sync.binId)}</code>
+          <button class="iconbtn" onclick="copySyncCode()" title="复制">📋</button>
+        </span>
+      </div>
+      <div class="srow"><span>立即上传本机数据</span><button class="btn small" onclick="doPush()">上传</button></div>
+      <div class="srow"><span>从云端下载覆盖本机</span><button class="btn small gray" onclick="forcePull()">下载</button></div>
+      <div class="srow"><span style="color:var(--danger)">关闭云同步</span><button class="btn small" style="background:var(--danger)" onclick="disableSync()">关闭</button></div>`;
+  } else {
+    box.innerHTML = `
+      <div id="sync-status" style="display:none"></div>
+      <p class="hint" style="margin:6px 2px 10px">首次在本设备开启,或用同步码连接已有数据。密钥只保存在本机,不会上传、也不在网页代码里。</p>
+      <label class="synclabel">① 本设备首次开启</label>
+      <input class="syncinput" id="sync-key" type="text" placeholder="粘贴云同步密钥(X-Master-Key)" autocapitalize="off" autocorrect="off">
+      <button class="btn" style="width:100%;margin-top:8px" onclick="enableSyncNew()">开启云同步</button>
+      <div style="height:1px;background:#e5eaea;margin:16px 0"></div>
+      <label class="synclabel">② 已在别的设备开启过?用同步码连接</label>
+      <input class="syncinput" id="sync-key2" type="text" placeholder="粘贴同一个云同步密钥" autocapitalize="off" autocorrect="off">
+      <input class="syncinput" id="sync-code" type="text" placeholder="粘贴同步码" autocapitalize="off" autocorrect="off" style="margin-top:8px">
+      <button class="btn gray" style="width:100%;margin-top:8px" onclick="connectSync()">连接并同步</button>`;
+  }
 }
 
 /* ---------------- 2. 查词层 ---------------- */
@@ -300,7 +477,7 @@ async function addWord(){
   entry.cn = cn;
 
   state.words.unshift(entry);
-  saveState(); renderList();
+  markWordsChanged(); renderList();
   input.value=''; input.focus();
   btn.disabled = false; btn.textContent = '添加';
 
@@ -355,13 +532,13 @@ function esc(s){ return (s||'').replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;',
 
 function toggleKnown(id){
   const w = state.words.find(x=>x.id===id); if(!w) return;
-  w.known = !w.known; saveState(); renderList();
+  w.known = !w.known; markWordsChanged(); renderList();
 }
 function delWord(id){
   const w = state.words.find(x=>x.id===id); if(!w) return;
   if(!confirm('删除单词 "' + w.word + '" ?')) return;
   state.words = state.words.filter(x=>x.id!==id);
-  saveState(); renderList();
+  markWordsChanged(); renderList();
 }
 
 /* 编辑弹层 */
@@ -383,7 +560,7 @@ function saveModal(){
   w.phonetic = document.getElementById('m-ph').value.trim();
   w.cn = document.getElementById('m-cn').value.trim();
   w.en = document.getElementById('m-en').value.trim();
-  saveState(); renderList(); closeModal();
+  markWordsChanged(); renderList(); closeModal();
 }
 
 /* ---------------- 4. 语音层 ---------------- */
@@ -648,7 +825,7 @@ function importData(ev){
           state.words.push(w); added++;
         }
       });
-      saveState(); renderList();
+      markWordsChanged(); renderList();
       toast('导入完成,新增 ' + added + ' 个单词');
     }catch(e){ toast('导入失败:文件格式不正确'); }
   };
@@ -658,7 +835,7 @@ function importData(ev){
 function clearAll(){
   if(!state.words.length){ toast('单词本已经是空的'); return; }
   if(!confirm('确定清空全部 ' + state.words.length + ' 个单词?建议先导出备份。')) return;
-  state.words = []; saveState(); renderList();
+  state.words = []; markWordsChanged(); renderList();
 }
 
 /* ---------------- 工具 ---------------- */
@@ -672,8 +849,11 @@ function toast(msg){
 
 /* ---------------- 启动 ---------------- */
 loadState();
+loadSync();
 restoreSettings();
 renderList();
+renderSyncUI();
+initSync();   // 若已开启同步,启动时和云端对一次
 </script>
 </body>
 </html>
