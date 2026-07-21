@@ -24,8 +24,12 @@
 
   /* ---------- 单词本 ---------- */
   .addbox{display:flex; gap:8px; margin-bottom:6px;}
-  .addbox input{flex:1; padding:12px 14px; font-size:16px; border:1.5px solid #cfd8d8; border-radius:var(--radius); outline:none; background:#fff;}
+  .addbox input{flex:1; min-width:0; padding:12px 14px; font-size:16px; border:1.5px solid #cfd8d8; border-radius:var(--radius); outline:none; background:#fff;}
   .addbox input:focus{border-color:var(--teal);}
+  .addbox select{padding:0 6px; font-size:14px; border:1.5px solid #cfd8d8; border-radius:var(--radius); background:#fff; color:var(--ink);}
+  .catbadge{font-size:11px; border:none; border-radius:6px; padding:3px 7px; cursor:pointer;}
+  .catbadge.med{background:var(--teal-light); color:var(--teal-dark);}
+  .catbadge.gen{background:#eef2ff; color:#4f46e5;}
   .btn{padding:12px 18px; font-size:15px; border:none; border-radius:var(--radius); background:var(--teal); color:#fff; cursor:pointer; font-weight:600;}
   .btn:active{transform:scale(.97);}
   .btn.gray{background:#e5e7eb; color:var(--ink); font-weight:500;}
@@ -45,7 +49,14 @@
   .card .ops{display:flex; gap:6px; margin-left:auto;}
   .card .ops .iconbtn{background:#f1f5f5; font-size:13px; color:#4b5563;}
   .card.known .w{color:#9ca3af; text-decoration:line-through solid #d1d5db 2px;}
+  .card.flash{outline:2.5px solid var(--teal); background:#eefaf9;}
   .badge{font-size:11px; background:#fef3c7; color:var(--amber); border-radius:6px; padding:2px 6px;}
+  .stars{display:inline-flex; align-items:center;}
+  .starbtn{cursor:pointer; font-size:17px; color:#d1d5db; background:none; border:none; padding:0 1px; line-height:1;}
+  .starbtn.on{color:#f59e0b;}
+  .chips{display:flex; gap:6px; margin-bottom:10px; flex-wrap:wrap;}
+  .chip{padding:5px 12px; border-radius:999px; border:1px solid #d8e2e2; background:#fff; font-size:13px; cursor:pointer; color:#4b5563;}
+  .chip.active{background:var(--teal); color:#fff; border-color:var(--teal);}
   .empty{text-align:center; color:var(--muted); padding:40px 10px; font-size:14px; line-height:1.8;}
 
   /* 编辑弹层 */
@@ -105,10 +116,26 @@
   <section id="panel-list" class="panel active">
     <div class="addbox">
       <input id="word-input" type="text" placeholder="输入英文单词,如 hypertension" autocomplete="off" autocapitalize="off" onkeydown="if(event.key==='Enter')addWord()">
+      <select id="add-cat" title="新单词的分类">
+        <option value="med" selected>医学</option>
+        <option value="gen">非医学</option>
+      </select>
       <button class="btn" id="add-btn" onclick="addWord()">添加</button>
     </div>
     <div class="hint">添加后自动联网查询音标和中文释义;查不到或不准确时,点单词卡上的 ✏️ 手动修改。</div>
     <input class="searchbox" id="search-input" type="text" placeholder="🔍 在单词本中搜索…" oninput="renderList()">
+    <div class="chips" id="cat-chips" style="margin-bottom:6px">
+      <button class="chip active" data-cat="all" onclick="setCatFilter('all')">全部分类</button>
+      <button class="chip" data-cat="med" onclick="setCatFilter('med')">🩺 医学单词</button>
+      <button class="chip" data-cat="gen" onclick="setCatFilter('gen')">📗 非医学单词</button>
+    </div>
+    <div class="chips" id="star-chips">
+      <button class="chip active" data-star="all" onclick="setStarFilter('all')">全部</button>
+      <button class="chip" data-star="1" onclick="setStarFilter('1')">★</button>
+      <button class="chip" data-star="2" onclick="setStarFilter('2')">★★</button>
+      <button class="chip" data-star="3" onclick="setStarFilter('3')">★★★</button>
+      <button class="chip" data-star="0" onclick="setStarFilter('0')">未标星</button>
+    </div>
     <div class="stats" id="stats"></div>
     <div id="word-list"></div>
   </section>
@@ -133,6 +160,22 @@
         <select id="set-prefer-human" onchange="saveSettings()">
           <option value="0" selected>系统语音(清晰稳定,推荐)</option>
           <option value="1">真人录音(部分词有,音质不一)</option>
+        </select>
+      </div>
+      <div class="srow"><span>听哪类单词</span>
+        <select id="set-catfilter" onchange="saveSettings()">
+          <option value="all" selected>全部分类</option>
+          <option value="med">只听医学单词</option>
+          <option value="gen">只听非医学单词</option>
+        </select>
+      </div>
+      <div class="srow"><span>听哪些星级</span>
+        <select id="set-starfilter" onchange="saveSettings()">
+          <option value="all" selected>全部单词</option>
+          <option value="1">只听 ★ 一星</option>
+          <option value="2">只听 ★★ 两星</option>
+          <option value="3">只听 ★★★ 三星</option>
+          <option value="0">只听未标星的</option>
         </select>
       </div>
       <div class="srow"><span>播放顺序</span>
@@ -221,6 +264,11 @@
   <div class="modal">
     <h3 id="modal-title">编辑单词</h3>
     <label>单词</label><input id="m-word" type="text" autocapitalize="off">
+    <label>分类</label>
+    <select id="m-cat" style="width:100%;padding:10px 12px;font-size:15px;border:1.5px solid #cfd8d8;border-radius:10px;background:#fff">
+      <option value="med">医学单词</option>
+      <option value="gen">非医学单词</option>
+    </select>
     <label>音标 (可留空)</label><input id="m-ph" type="text" placeholder="如 /ˌhaɪpəˈtenʃən/">
     <label>中文释义</label><textarea id="m-cn" placeholder="如 高血压"></textarea>
     <label>英文释义 (可留空)</label><textarea id="m-en"></textarea>
@@ -232,7 +280,7 @@
 </div>
 
 <div id="toast"></div>
-<footer>Med Vocab v1.4 · 本地+云同步 · 由 Claude 构建</footer>
+<footer>Med Vocab v1.6 · 本地+云同步 · 由 Claude 构建</footer>
 
 <script>
 /* =====================================================================
@@ -490,13 +538,27 @@ async function addWord(){
   const word = input.value.trim().toLowerCase();
   if(!word){ toast('请输入英文单词'); return; }
   if(!/^[a-z][a-z\-'\s]*$/i.test(word)){ toast('请输入英文单词(字母)'); return; }
-  if(state.words.some(w=>w.word===word)){ toast('"' + word + '" 已在单词本中'); return; }
+  // 重复输入:不再添加,累计输入次数并提示
+  const existing = state.words.find(w=>w.word===word);
+  if(existing){
+    existing.addCount = (existing.addCount||1) + 1;
+    markWordsChanged();
+    setStarFilter('all');                        // 切回全部,确保能看到这个词
+    document.getElementById('search-input').value = '';
+    renderList();
+    toast('"' + word + '" 已经输入过 ' + existing.addCount + ' 次了,不重复添加');
+    input.value='';
+    const c = document.getElementById('card-'+existing.id);   // 滚动到该词并高亮提示
+    if(c){ c.scrollIntoView({behavior:'smooth', block:'center'}); c.classList.add('flash'); setTimeout(()=>c.classList.remove('flash'), 1800); }
+    return;
+  }
 
   const btn = document.getElementById('add-btn');
   btn.disabled = true; btn.textContent = '查询中…';
 
   const entry = { id: 'w' + (state.words.length ? Math.max(...state.words.map(x=>parseInt(x.id.slice(1))||0))+1 : 1),
                   word, phonetic:'', cn:'', en:'', audio:'', known:false,
+                  stars:0, addCount:1, cat: document.getElementById('add-cat').value,
                   addedAt: new Date().toISOString().slice(0,10) };
   // 两个查询并行,任一失败不影响另一个
   const [dict, cn] = await Promise.all([
@@ -529,16 +591,45 @@ function switchTab(name){
   });
 }
 
+let listStarFilter = 'all';   // 单词本页面的星级筛选
+let listCatFilter = 'all';    // 单词本页面的分类筛选
+const catOf = w => w.cat || 'med';   // 老数据没有分类字段,默认算医学单词
+function setStarFilter(v){
+  listStarFilter = v;
+  document.querySelectorAll('#star-chips .chip').forEach(c=>c.classList.toggle('active', c.dataset.star===v));
+  renderList();
+}
+function setCatFilter(v){
+  listCatFilter = v;
+  document.querySelectorAll('#cat-chips .chip').forEach(c=>c.classList.toggle('active', c.dataset.cat===v));
+  renderList();
+}
+function toggleCat(id){
+  const w = state.words.find(x=>x.id===id); if(!w) return;
+  w.cat = (catOf(w)==='med' ? 'gen' : 'med');
+  markWordsChanged(); renderList();
+  toast('"' + w.word + '" 已归入' + (w.cat==='med' ? '医学单词' : '非医学单词'));
+}
+function setStars(id, n){
+  const w = state.words.find(x=>x.id===id); if(!w) return;
+  w.stars = (w.stars===n ? 0 : n);   // 点同一颗星可取消
+  markWordsChanged(); renderList();
+}
+
 function renderList(){
   const q = (document.getElementById('search-input').value||'').trim().toLowerCase();
   const listEl = document.getElementById('word-list');
-  const words = state.words.filter(w => !q || w.word.includes(q) || (w.cn||'').includes(q));
+  let words = state.words.filter(w => !q || w.word.includes(q) || (w.cn||'').includes(q));
+  if(listCatFilter !== 'all') words = words.filter(w => catOf(w) === listCatFilter);
+  if(listStarFilter !== 'all') words = words.filter(w => (w.stars||0) === parseInt(listStarFilter));
   const knownCount = state.words.filter(w=>w.known).length;
+  const medCount = state.words.filter(w=>catOf(w)==='med').length;
   document.getElementById('stats').textContent =
-    state.words.length ? `共 ${state.words.length} 个单词 · 已掌握 ${knownCount} 个` : '';
+    state.words.length ? `共 ${state.words.length} 个 · 医学 ${medCount} · 非医学 ${state.words.length-medCount} · 已掌握 ${knownCount}` +
+      ((listStarFilter!=='all'||listCatFilter!=='all') ? ` · 当前筛选 ${words.length} 个` : '') : '';
 
   if(!words.length){
-    listEl.innerHTML = '<div class="empty">' + (state.words.length ? '没有匹配的单词'
+    listEl.innerHTML = '<div class="empty">' + (state.words.length ? '当前筛选下没有单词'
       : '单词本还是空的 🌱<br>在上方输入你不认识的医学单词试试<br>例如:hypertension、diagnosis、anesthesia') + '</div>';
     return;
   }
@@ -548,6 +639,10 @@ function renderList(){
         <span class="w">${esc(w.word)}</span>
         <span class="ph">${esc(w.phonetic||'')}</span>
         <button class="iconbtn" onclick="pronounce('${w.id}')" title="发音">🔊</button>
+        <span class="stars" title="标星级">${[1,2,3].map(n=>
+          `<button class="starbtn ${n<=(w.stars||0)?'on':''}" onclick="setStars('${w.id}',${n})">★</button>`).join('')}</span>
+        <button class="catbadge ${catOf(w)}" onclick="toggleCat('${w.id}')" title="点击切换分类">${catOf(w)==='med'?'医学':'非医学'}</button>
+        ${(w.addCount||1)>1 ? `<span class="badge">输入${w.addCount}次</span>` : ''}
         <div class="ops">
           <button class="iconbtn" onclick="toggleKnown('${w.id}')" title="标记掌握">${w.known?'↩️':'✅'}</button>
           <button class="iconbtn" onclick="openModal('${w.id}')" title="编辑">✏️</button>
@@ -577,6 +672,7 @@ function openModal(id){
   const w = state.words.find(x=>x.id===id); if(!w) return;
   editingId = id;
   document.getElementById('m-word').value = w.word;
+  document.getElementById('m-cat').value = catOf(w);
   document.getElementById('m-ph').value = w.phonetic||'';
   document.getElementById('m-cn').value = w.cn||'';
   document.getElementById('m-en').value = w.en||'';
@@ -587,6 +683,7 @@ function saveModal(){
   const w = state.words.find(x=>x.id===editingId); if(!w){ closeModal(); return; }
   const nw = document.getElementById('m-word').value.trim().toLowerCase();
   if(nw) w.word = nw;
+  w.cat = document.getElementById('m-cat').value;
   w.phonetic = document.getElementById('m-ph').value.trim();
   w.cn = document.getElementById('m-cn').value.trim();
   w.en = document.getElementById('m-en').value.trim();
@@ -711,6 +808,8 @@ let skipRequest = 0;    // -1上一个 / 1下一个
 function getSettings(){
   return {
     order: document.getElementById('set-order').value,
+    catFilter: document.getElementById('set-catfilter').value,
+    starFilter: document.getElementById('set-starfilter').value,
     playOrder: document.getElementById('set-playorder').value,
     repeat: parseInt(document.getElementById('set-repeat').value),
     readcn: document.getElementById('set-readcn').checked,
@@ -728,6 +827,8 @@ function saveSettings(){ state.settings = getSettings(); saveState(); }
 function restoreSettings(){
   const s = state.settings || {};
   if(s.order) document.getElementById('set-order').value = s.order;
+  if(s.catFilter) document.getElementById('set-catfilter').value = s.catFilter;
+  if(s.starFilter) document.getElementById('set-starfilter').value = s.starFilter;
   if(s.playOrder) document.getElementById('set-playorder').value = s.playOrder;
   if(s.repeat) document.getElementById('set-repeat').value = s.repeat;
   if('readcn' in s) document.getElementById('set-readcn').checked = s.readcn;
@@ -743,6 +844,8 @@ function restoreSettings(){
 function buildQueue(){
   const s = getSettings();
   let q = state.words.filter(w => !(s.skipknown && w.known));
+  if(s.catFilter && s.catFilter !== 'all') q = q.filter(w => catOf(w) === s.catFilter);
+  if(s.starFilter && s.starFilter !== 'all') q = q.filter(w => (w.stars||0) === parseInt(s.starFilter));
   if(s.order==='seq') q = q.slice().reverse();       // words数组最新在前,按添加顺序则反转
   else if(s.order==='random'){
     q = q.slice();
@@ -767,7 +870,8 @@ async function playLoop(){
   do {
     playQueue = buildQueue();
     if(!playQueue.length){
-      toast(getSettings().skipknown ? '没有可播放的单词(都被标记为已掌握了)' : '单词本是空的,先去添加单词吧');
+      toast(state.words.length === 0 ? '单词本是空的,先去添加单词吧'
+        : '当前筛选下没有可播放的单词,检查“听哪类/哪些星级”和“跳过已掌握”设置');
       stopPlay(); return;
     }
     for(playIdx = 0; playIdx < playQueue.length; playIdx++){
