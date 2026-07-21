@@ -3,7 +3,11 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>医学英语单词本 Med Vocab</title>
+<title>Sophia的单词记录本</title>
+<meta name="apple-mobile-web-app-title" content="Sophia的单词记录本">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link id="favicon" rel="icon" type="image/png" href="apple-touch-icon.png">
 <style>
   :root{
     --teal:#0e7c7b; --teal-dark:#0a5c5b; --teal-light:#e6f4f4;
@@ -102,8 +106,8 @@
 </head>
 <body>
 <header>
-  <h1>🩺 医学英语单词本</h1>
-  <div class="sub">Medical English Vocabulary · 查词 · 听读</div>
+  <h1><img id="app-avatar" src="apple-touch-icon.png" alt="" style="width:26px;height:26px;border-radius:50%;vertical-align:-6px;margin-right:6px;object-fit:cover" onerror="this.style.display='none'">Sophia的单词记录本</h1>
+  <div class="sub">Sophia's Vocabulary Notebook · 查词 · 听读</div>
 </header>
 <div class="tabs">
   <button id="tab-list" class="active" onclick="switchTab('list')">📖 单词本</button>
@@ -280,7 +284,7 @@
 </div>
 
 <div id="toast"></div>
-<footer>Med Vocab v1.6 · 本地+云同步 · 由 Claude 构建</footer>
+<footer>Sophia的单词记录本 v1.7 · 本地+云同步 · 由 Claude 构建</footer>
 
 <script>
 /* =====================================================================
@@ -759,7 +763,7 @@ function testVoice(which){
   saveSettings();
   setTimeout(()=>{
     if(which === 'en') speak('hypertension. Medical English.', 'en-US', 0.9);
-    else speak('高血压。医学英语单词本。', 'zh-CN', 1);
+    else speak('高血压。Sophia的单词记录本。', 'zh-CN', 1);
   }, 150);
 }
 // 朗读一段文字,返回Promise;checkToken用于中途停止
