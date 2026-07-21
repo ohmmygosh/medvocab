@@ -149,6 +149,12 @@
           <option value="3">3 遍</option>
         </select>
       </div>
+      <div class="srow"><span>朗读顺序</span>
+        <select id="set-playorder" onchange="saveSettings()">
+          <option value="en-first" selected>先英文,后中文</option>
+          <option value="cn-first">先中文,后英文</option>
+        </select>
+      </div>
       <div class="srow"><span>朗读中文释义</span>
         <label class="switch"><input type="checkbox" id="set-readcn" checked onchange="saveSettings()"><span class="slider"></span></label>
       </div>
@@ -226,7 +232,7 @@
 </div>
 
 <div id="toast"></div>
-<footer>Med Vocab v1.3.2 · 本地+云同步 · 由 Claude 构建</footer>
+<footer>Med Vocab v1.4 · 本地+云同步 · 由 Claude 构建</footer>
 
 <script>
 /* =====================================================================
@@ -705,6 +711,7 @@ let skipRequest = 0;    // -1上一个 / 1下一个
 function getSettings(){
   return {
     order: document.getElementById('set-order').value,
+    playOrder: document.getElementById('set-playorder').value,
     repeat: parseInt(document.getElementById('set-repeat').value),
     readcn: document.getElementById('set-readcn').checked,
     readen: document.getElementById('set-readen').checked,
@@ -721,6 +728,7 @@ function saveSettings(){ state.settings = getSettings(); saveState(); }
 function restoreSettings(){
   const s = state.settings || {};
   if(s.order) document.getElementById('set-order').value = s.order;
+  if(s.playOrder) document.getElementById('set-playorder').value = s.playOrder;
   if(s.repeat) document.getElementById('set-repeat').value = s.repeat;
   if('readcn' in s) document.getElementById('set-readcn').checked = s.readcn;
   if('readen' in s) document.getElementById('set-readen').checked = s.readen;
@@ -767,22 +775,29 @@ async function playLoop(){
       const s = getSettings();
       const w = playQueue[playIdx];
       showNow(w, playIdx, playQueue.length);
-      // 读英文单词 repeat 遍
+      // 英文段:单词读 repeat 遍(+ 可选英文释义)
       // 注意:这里不再每次cancel——上一句已await读完,cancel反而会吞掉新语音
-      for(let r=0; r<s.repeat; r++){
-        if(token.cancelled || skipRequest) break;
-        await speak(w.word, 'en-US', s.rate, token);
-        await sleep(350, token);
-      }
-      // 读中文释义
-      if(s.readcn && w.cn && !token.cancelled && !skipRequest){
-        await speak(w.cn, 'zh-CN', 1, token);
-      }
-      // 读英文释义
-      if(s.readen && w.en && !token.cancelled && !skipRequest){
-        await sleep(300, token);
-        await speak(w.en.replace(/\([a-z ]+\)/gi,''), 'en-US', s.rate, token);
-      }
+      const sayEnglish = async () => {
+        for(let r=0; r<s.repeat; r++){
+          if(token.cancelled || skipRequest) return;
+          await speak(w.word, 'en-US', s.rate, token);
+          await sleep(350, token);
+        }
+        if(s.readen && w.en && !token.cancelled && !skipRequest){
+          await sleep(300, token);
+          await speak(w.en.replace(/\([a-z ]+\)/gi,''), 'en-US', s.rate, token);
+        }
+      };
+      // 中文段:读中文释义
+      const sayChinese = async () => {
+        if(s.readcn && w.cn && !token.cancelled && !skipRequest){
+          await speak(w.cn, 'zh-CN', 1, token);
+          await sleep(250, token);
+        }
+      };
+      // 按设置的顺序播放
+      if(s.playOrder === 'cn-first'){ await sayChinese(); await sayEnglish(); }
+      else { await sayEnglish(); await sayChinese(); }
       if(token.cancelled) return;
       // 处理上一个/下一个请求
       if(skipRequest){
